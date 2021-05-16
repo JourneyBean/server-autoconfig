@@ -1,0 +1,20 @@
+git: 
+  addr: https://git.example.com/conf.git
+  branch: master
+
+services:
+  dnsmasq:
+    reload-method: systemd-reload
+    systemd-units: 
+      - dnsmasq.service
+    reload-command: "systemctl restart dnsmasq"
+    reload-shell: "/data/shell.sh"
+    files:
+      - /router/dnsmasq/dnsmasq.conf:/etc/dnsmasq/dnsmasq.conf
+  samba:
+    reload-method: systemd-reload
+    systemd-units:
+      - smb.service
+      - nmb.service
+    files:
+      - /file-server/smb.conf:/etc/samba/smb.conf
