@@ -1,27 +1,28 @@
 #!/bin/python3
 
-# Usage: server-autoconfig action [options]
-# action: init, update [--write-and-restart] [--write-files-only] [--restart-services-only]
-# -r git-repo-addr : specify git repo
-# -b branch : specify git branch name
-# -s service-name : specify what service to be affected. 
-#                   'all' for all services in conf file.
-# -m systemd-restart-method : "restart" or "reload" or "stop"
-# -f file-pairs : /relative/path/in/git/file.conf:/absolute/path/in/system/file.conf
-#
-# -c conf-file : specify config file. default: /etc/server-autoconfig/server-autoconfig.yml
-
 import yaml
 import argparse
 import os
 import subprocess
 
-# default parameters
+# config and default config
 class config:
+    instance = 1a2b
     config_path = '/etc/server-autoconfig/config.yml'
-    repo_path = '/home/johnson/Projects/test/repo'
-    debug = False
+    data_path_prefix = '/var/cache/server-autoconfig/data_'
+    debug_level = 0
     config = []
+
+# leveled debug control
+def debug_output( level, message ):
+    if ( debug_level >= level ):
+        printf(message)
+
+def getConfigPath():
+    return config.config_path
+
+def getRepoPath():
+    return config.data_path_prefix + config.instance
 
 def isUnitExists(name):
 
