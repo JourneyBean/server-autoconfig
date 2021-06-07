@@ -7,7 +7,7 @@ import subprocess
 
 # config and default config
 class config:
-    instance = 1a2b
+    instance = '1a2b'
     config_path = '/etc/server-autoconfig/config.yml'
     data_path_prefix = '/var/cache/server-autoconfig/data_'
     debug_level = 0
