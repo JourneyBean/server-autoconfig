@@ -36,7 +36,7 @@ def debug_output( level, message ):
     elif level == consts.DEBUG_LEVEL_NOTICE:
         message = "[NOTE] " + message
     else:
-        message = "[INFO]" + message
+        message = "[INFO] " + message
 
     if ( config.debug_level >= level ):
         print(message)
@@ -68,20 +68,73 @@ def isSystemdUnitExists(name):
 def isNoReload():
     return config.arg_no_restart
 
+def createDirectoryByName(filename):
+    p,f = os.path.split(filename)
+    dir = Path(p)
+    if dir.exists():
+        if not dir.is_dir():
+            debug_output(consts.DEBUG_LEVEL_ERROR, "directory: [ERR] conflict file name at " + p + ", excepted directory.")
+    else:
+        cmd = "mkdir -p " + p
+        debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+        os.system(cmd)
+
 # Check local repository existence
 def isDataDirectoryCreated():
     dir =  Path(getDataPath())
     return dir.is_dir()
 
-# Check if local repository successfully created
+# git referred tools
+def checkoutRepoBranch(branch):
+    debug_output(consts.DEBUG_LEVEL_INFO, "Checkout branch " + branch)
+    cmd = 'cd ' + getRepoPath() + ' && git checkout ' + branch
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+def newRepoBranch(branch):
+    debug_output(consts.DEBUG_LEVEL_INFO, "Create branch " + branch)
+    cmd = 'cd ' + getRepoPath() + ' && git branch ' + branch
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+def commitRepo(message):
+    debug_output(consts.DEBUG_LEVEL_INFO, "Commit to local repo")
+    cmd = 'cd ' + getRepoPath() + ' && git add --all && git commit -m "' + message + '"'
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+def revertRepo():
+    debug_output(consts.DEBUG_LEVEL_INFO, "Revert changes at local repo")
+    cmd = 'cd ' + getRepoPath() + ' && git reset --hard HEAD^'
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+def clearRepoFiles():
+    debug_output(consts.DEBUG_LEVEL_INFO, "Delete all repo files")
+    cmd = 'cd ' + getRepoPath() + ' && git rm -r *'
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+def resetRepo():
+    debug_output(consts.DEBUG_LEVEL_INFO, "Reset repo")
+    cmd = 'cd ' + getRepoPath() + ' && git reset --hard'
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+def pushRepo(branch):
+    debug_output(consts.DEBUG_LEVEL_INFO, "Push repo")
+    cmd = 'cd ' + getRepoPath() + ' && git checkout ' + branch + " && git push --set-upstream origin " + branch
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
 
 #################### COMPONENTS ####################
 
 # Handle command line config and config file
 def args_parser():
 
-    # setup argparse
+    debug_output(consts.DEBUG_LEVEL_INFO, "args_parser: Ready to parse args")
 
+    # setup argparse
     argp = argparse.ArgumentParser(
         'server-autoconfig',
         description='''
@@ -92,9 +145,14 @@ def args_parser():
 
     argp.add_argument(
         'action',
-        choices=['update', 'rollback', 'clear'],
-        metavar='{update|rollback|clear}',
-        help='{update|rollback|clear} update, rollback or clear cache.'
+        choices=['update', 'rollback', 'download', 'backup', 'push', 'clear'],
+        metavar='{update|rollback|download|backup|push|clear}',
+        help='Update: download, apply to system and backup to local. \
+                Rollback: revert settings to the last stage. \
+                Download: download repo only. \
+                Backup: backup current system configs to local only. \
+                Push: push local backup to upstream repo. \
+                Clear: clean all data, including local backups.'
     )
 
     argp.add_argument(
@@ -171,6 +229,7 @@ def config_init( args ):
     # apply --no-restart from args
     if args.no_restart:
         config.arg_no_restart = True
+        debug_output(consts.DEBUG_LEVEL_NOTICE, "--no-restart, will not restart services")
 
     return
 
@@ -183,6 +242,8 @@ def config_checker( args ):
 
     # check each service in services section of config file.
     for service_name in services:
+
+        debug_output(consts.DEBUG_LEVEL_INFO, "config_checker: Checking section config/services/" + service_name)
 
         # check by reload-method
         if services[service_name].get('restart-method'):
@@ -201,20 +262,22 @@ def config_checker( args ):
                                          "config/services/" + service_name + "/systemd-units")
                             exit(1)
                         else:
-                            debug_output(consts.DEBUG_LEVEL_INFO, "config_parser: " +
-                                        "config/services/" + service_name + "/systemd-units" + unit_file)
+                            debug_output(consts.DEBUG_LEVEL_INFO, "config_checker: [OK] Found " +
+                                        "config/services/" + service_name + "/systemd-units/" + unit_file)
 
                 else:
                     debug_output(consts.DEBUG_LEVEL_ERROR, 'No systemd units found in section' +
                                  "config/services/" + service_name)
                     exit(1)
 
-                # is command
+            # is command
             elif ( services[service_name]['restart-method'] == 'command' ):
                     
-                if not services[service_name]['restart-command']:
+                if not services[service_name].get('restart-command'):
                     debug_output(consts.DEBUG_LEVEL_ERROR, "No restart-command found in section" +
                                  "config/services/" + service_name)
+                else:
+                    debug_output(consts.DEBUG_LEVEL_INFO, "config_checker: [OK] Found config/services/" + service_name + "/restart-command")
 
             # is other
             else:
@@ -230,6 +293,9 @@ def config_checker( args ):
     return
 
 def filepair_checker():
+
+    debug_output(consts.DEBUG_LEVEL_INFO, "[filepair_checker]: Checking files")
+
     services = config.config['services']
     for service_name in services:
         if not services[service_name].get('files'):
@@ -243,7 +309,7 @@ def filepair_checker():
                 repo_file = getRepoPath() + '/' + repo_file
                 target_file = file_pair[file_pair.index(':')+1:]
                 if not os.path.exists(repo_file):
-                    debug_output(consts.DEBUG_LEVEL_ERROR, "Could not found file from local repo: " +
+                    debug_output(consts.DEBUG_LEVEL_ERROR, "Could not find file from local repo: " +
                                  repo_file + " in section " + "config/services/" + service_name + "/files")
                     exit(1)
                 else:
@@ -259,22 +325,28 @@ def filepair_copy( isReverse ):
             repo_file = getRepoPath() + '/' + repo_file
             target_file = file_pair[file_pair.index(':')+1:]
             if not isReverse:
+                createDirectoryByName(target_file)
                 cmd = 'cp ' + repo_file + ' ' + target_file
                 debug_output(consts.DEBUG_LEVEL_INFO, cmd)
                 os.system(cmd)
             else:
+                createDirectoryByName(repo_file)
                 cmd = 'cp ' + target_file + ' ' + repo_file
                 debug_output(consts.DEBUG_LEVEL_INFO, cmd)
                 os.system(cmd)
 
     return
 
+# pull or clone remote repo to local cache
 def prepare_repo():
 
-    debug_output(consts.DEBUG_LEVEL_INFO, "Prepare local repo")
+    debug_output(consts.DEBUG_LEVEL_INFO, "[prepare_repo] Prepare local repo")
 
     # prepare repo: pull or clone
     if os.path.exists(getDataPath() + '/initialized'):
+        # checkout to upstream branch
+        checkoutRepoBranch(config.config['upstream']['git-pull-branch'])
+        resetRepo()
         # git pull
         debug_output(consts.DEBUG_LEVEL_INFO, "Initialized. Pull from repo " + config.config['upstream']['git-addr'])
         cmd = 'cd ' + getRepoPath() + ' && git pull'
@@ -297,39 +369,29 @@ def prepare_repo():
 
     return
 
+# copy current filepairs to branch
 def backup_current_config():
 
-    # create branch
-    debug_output(consts.DEBUG_LEVEL_INFO, "Create branch " + config.config['upstream']['git-backup-branch'])
-    cmd = 'cd ' + getRepoPath() + ' && git branch ' + config.config['upstream']['git-backup-branch']
-    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
-    os.system(cmd)
+    debug_output(consts.DEBUG_LEVEL_INFO, "[backup_current_config]: Backing up")
 
-    # checkout backup branch
-    debug_output(consts.DEBUG_LEVEL_INFO, "Checkout branch " + config.config['upstream']['git-backup-branch'])
-    cmd = 'cd ' + getRepoPath() + ' && git checkout ' + config.config['upstream']['git-backup-branch']
-    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
-    os.system(cmd)
+    newRepoBranch(config.config['upstream']['git-backup-branch'])
+    checkoutRepoBranch(config.config['upstream']['git-backup-branch'])
+    clearRepoFiles()
+    filepair_copy(1) # system -> repo
+    commitRepo("bcakup at " + time.asctime( time.localtime(time.time())))
 
-    # copy current files to git repo
-    filepair_copy(True)
-
-    # commit
-    debug_output(consts.DEBUG_LEVEL_INFO, "Commit backup files at local repo")
-    cmd = 'cd ' + getRepoPath() + ' && git add --all && git commit -m "' + time.asctime( time.localtime(time.time())) + '"'
-    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
-    os.system(cmd)
-
+# copy files to system
 def update_config():
-    debug_output(consts.DEBUG_LEVEL_INFO, "Checkout branch " + config.config['upstream']['git-pull-branch'])
-    cmd = 'cd ' + getRepoPath() + ' && git checkout ' + config.config['upstream']['git-pull-branch']
-    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
-    os.system(cmd)
 
-    # copy current files to git repo
-    filepair_copy(False)
+    debug_output(consts.DEBUG_LEVEL_INFO, "[update_config]: Updating config to system")
+
+    checkoutRepoBranch(config.config['upstream']['git-pull-branch'])
+    filepair_copy(0) # repo -> system
 
 def restart_service():
+
+    debug_output(consts.DEBUG_LEVEL_INFO, "[restart_service]: Restarting services")
+
     # for each services
     services = config.config['services']
     for service_name in services:
@@ -361,8 +423,10 @@ def restart_service():
 
 def clear_cache():
     debug_output(consts.DEBUG_LEVEL_WARNING, "Will delete cache including backups!")
-    cmd = "rm " + getDataPath() + " -r"
-    os.system(cmd)
+    cmd = "rm -rf " + getDataPath()
+    str = input("Will exectute: " + cmd + ". Proceed?(Y/n)" )
+    if str == 'Y':
+        os.system(cmd)
 
 #################### MAIN ####################
 
@@ -373,18 +437,39 @@ def main():
     config_checker(args)
 
     if args.action == "update":
-        prepare_repo()
-        filepair_checker()
+        prepare_repo()              # clone or pull repo
+        filepair_checker()          # check repo files to see if matches config
+        backup_current_config()     # copy system config to repo in backup branch
+        update_config()             # copy repo config to system
+        if not args.no_restart:
+            restart_service()       # restart system service
+
+    elif args.action == "backup":
         backup_current_config()
-        update_config()
+
+    elif args.action == "download":
+        prepare_repo()
+
+    elif args.action == "push":
+        pushRepo(config.config['upstream']['git-backup-branch'])
+
+    elif args.action == "rollback":
+        # change to backup branch
+        checkoutRepoBranch(config.config['upstream']['git-backup-branch'])
+        # copy backup branch to system
+        filepair_copy(0)
+        # revert git repo
+        revertRepo()
+        # restart system service
         if not args.no_restart:
             restart_service()
 
-    elif args.action == "rollback":
-        pass
-
     elif args.action == "clear":
-        clear_cache()
+        str = input("This will delete all data include local backup files. Proceed? (Y/n)")
+        if (str == 'Y'):
+            clear_cache()
+        else:
+            pass
 
     return True
 

@@ -4,24 +4,24 @@ basic:
   debug-level: 0
 
 upstream:
-  git-addr: https://git.example.com/conf.git
-  git-pull-branch: master
-  git-backup-branch: backup
+  git-addr: https://my-git-server/serverconfig.git
+  git-pull-branch: main
+  git-backup-branch: backup-router
 
 services:
 
   dnsmasq:
-    restart-before: 'bash -c /var/test.sh'
-    restart-after: 'bash -c /var/test-after.sh'
+    restart-before: 'ifdown eth1'
+    restart-after: 'bash -c "/var/test.sh"'
     restart-method: systemd-reload
     systemd-units:
       - dnsmasq.service
-    after-script: 'bash -c /var/test-after.sh'
     files:
       - /router/dnsmasq/dnsmasq.conf:/etc/dnsmasq/dnsmasq.conf
   
   my_service:
     restart-method: command
-    restart-command: 'pkill my_service && my_service -d'
+    restart-command: 'systemctl restart smb.service && systemctl reload nmb.service'
     files:
-      - /file-server/smb.conf:/etc/samba/smb.conf
+      - /router/samba/samba.conf:/etc/samba/samba.conf
+      - /router/samba/custom.conf:/var/spool/samba/custom.conf
