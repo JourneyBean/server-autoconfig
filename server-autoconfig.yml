@@ -1,21 +1,27 @@
-config:
-  instance: 1a2b
+basic:
+  instance: default
   data-path-prefix: '/var/cache/server-autoconfig/data_'
   debug-level: 0
 
 upstream:
   git-addr: https://git.example.com/conf.git
-  git-branch: master
+  git-pull-branch: master
+  git-backup-branch: backup
 
 services:
+
   dnsmasq:
-    reload-method: systemd-reload
+    restart-before: 'bash -c /var/test.sh'
+    restart-after: 'bash -c /var/test-after.sh'
+    restart-method: systemd-reload
     systemd-units:
       - dnsmasq.service
+    after-script: 'bash -c /var/test-after.sh'
     files:
       - /router/dnsmasq/dnsmasq.conf:/etc/dnsmasq/dnsmasq.conf
+  
   my_service:
-    reload-method: command
-    reload-command: 'pkill my_service && my_service -d'
+    restart-method: command
+    restart-command: 'pkill my_service && my_service -d'
     files:
       - /file-server/smb.conf:/etc/samba/smb.conf

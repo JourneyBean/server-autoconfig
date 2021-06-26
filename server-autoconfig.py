@@ -4,27 +4,53 @@ import yaml
 import argparse
 import os
 import subprocess
+from pathlib import Path
+import time
 
 # config and default config
 class config:
-    instance = '1a2b'
+    instance = 'default'
     config_path = '/etc/server-autoconfig/config.yml'
     data_path_prefix = '/var/cache/server-autoconfig/data_'
     debug_level = 0
+
+    arg_no_restart = False
+    arg_specify_service = False
+
     config = []
+
+class consts:
+    DEBUG_LEVEL_ERROR = 0
+    DEBUG_LEVEL_WARNING = 1
+    DEBUG_LEVEL_NOTICE = 2
+    DEBUG_LEVEL_INFO = 3
+
+#################### UTILS ####################
 
 # leveled debug control
 def debug_output( level, message ):
-    if ( debug_level >= level ):
-        printf(message)
+    if level == consts.DEBUG_LEVEL_ERROR:
+        message = "[ERR] " + message
+    elif level == consts.DEBUG_LEVEL_WARNING:
+        message = "[WARN] " + message
+    elif level == consts.DEBUG_LEVEL_NOTICE:
+        message = "[NOTE] " + message
+    else:
+        message = "[INFO]" + message
+
+    if ( config.debug_level >= level ):
+        print(message)
 
 def getConfigPath():
     return config.config_path
 
-def getRepoPath():
+def getDataPath():
     return config.data_path_prefix + config.instance
 
-def isUnitExists(name):
+def getRepoPath():
+    return getDataPath() + '/repo'
+
+def isSystemdUnitExists(name):
 
     p = subprocess.Popen(["systemctl", "list-units", "--all", name],
                             stdout=subprocess.PIPE,
@@ -39,6 +65,18 @@ def isUnitExists(name):
 
     return (count-8) > 0
 
+def isNoReload():
+    return config.arg_no_restart
+
+# Check local repository existence
+def isDataDirectoryCreated():
+    dir =  Path(getDataPath())
+    return dir.is_dir()
+
+# Check if local repository successfully created
+
+#################### COMPONENTS ####################
+
 # Handle command line config and config file
 def args_parser():
 
@@ -46,16 +84,17 @@ def args_parser():
 
     argp = argparse.ArgumentParser(
         'server-autoconfig',
-        description='''Auto config application tool from git repo.
-                        Note that command line parameters will override parameters in config file.
+        description='''
+                    Auto config application tool using 
+                    git repo.
                     '''
     )
 
     argp.add_argument(
         'action',
-        choices=['init', 'update'],
-        metavar='{init|update}',
-        help='{init, update} init will clone your git repo only.'
+        choices=['update', 'rollback', 'clear'],
+        metavar='{update|rollback|clear}',
+        help='{update|rollback|clear} update, rollback or clear cache.'
     )
 
     argp.add_argument(
@@ -78,267 +117,274 @@ def args_parser():
     )
 
     argp.add_argument(
-        '-r', '--repo',
+        '--service',
         required=False,
-        metavar='git-repo-url',
-        help='Your Git repo\'s URL'
-    )
-
-    argp.add_argument(
-        '-b', '--branch',
-        required=False,
-        metavar='git-branch',
-        help='Your Git repo\'s branch.'
-    )
-
-    argp.add_argument(
-        '-n', '--name',
-        required=False,
-        metavar='name',
-        help='Service name defined in YAML config. Or you can specify a new name.'
-    )
-
-    argp.add_argument(
-        '--reload-method', '-m',
-        required=False,
-        choices=['systemd-reload', 'systemd-restart', 'systemd-stop', 'command', 'shell'],
-        metavar='{systemd-reload|systemd-restart|systemd-stop|command|shell}',
-        help='Systemd units to restart.'
-    )
-
-    argp.add_argument(
-        '--units', '-u',
-        nargs='?',
-        required=False,
-        metavar='systemd-unit-name',
-        help='Systemd units to restart.'
-    )
-
-    argp.add_argument(
-        '--reload-command',
-        required=False,
-        metavar='command',
-        help='Command to restart service.'
-    )
-
-    argp.add_argument(
-        '--reload-shell',
-        required=False,
-        metavar='shell-path',
-        help='Shell file to restart service.'
-    )
-
-    argp.add_argument(
-        '--files', '-f',
-        nargs='?',
-        required=False,
-        metavar='repo-file-path:system-file-path',
-        help='File pairs to replace system-config-file to repo-file-path'
+        metavar='SERVICE_NAME',
+        help='Specify a service to apply'
     )
 
     args = argp.parse_args()
 
-    # args logic check
-    if args.reload_method or args.units or args.reload_command or args.reload_shell or args.files:
-        if not args.name:
-            exit('[ERR] Muse specify a name when adding or modifying a service. Exiting.')
-
-    if args.reload_method == 'systemd-reload' or args.reload_method == 'systemd-restart':
-        if not args.units:
-            exit('[ERR] Must specify aleast one systemd unit using --units when using reload_method=systemd-reload or systemd-restart. Exiting.')
-
-    if args.reload_method == 'command':
-        if not args.reload_command:
-            exit('[ERR] Must specify command using --reload-command when using reload_method=command. Exiting.')
-
-    if args.reload_method == 'shell':
-        if not args.reload_shell:
-            exit('[ERR] Must specify a shell file using --reload-shell when using reload_method=shell. Exiting.')
-    
-    if args.reload_shell:
-        if not os.path.exists(args.reload_shell):
-            exit('[ERR] File not found for reload shell file: ' + args.reload_shell + '. Exiting.')
-
     return args
 
-# mix command-line arguments and config file
-def config_parser(args, init):
+# Read and store config to memory
+def config_init( args ):
 
-    # get config file path
+    # TO-DO: Abstracting whole config into a class, using methods to obtain configs.
+
+    # get config file path from default or parameters
     if args.config:
         config.config_path = args.config
-    if not os.path.exists(config.config_path):
-        exit('[ERR] Failed to open config file: ' + config.config_path + '. Exiting.')
-    print('[INFO] Using config file: ' + config.config_path)
-
-    # read config file
-    f = open(config.config_path, 'r', encoding='utf-8')
-    cfg = f.read()
-    config.config = yaml.safe_load(cfg)
-
-    # merge config file and command line parameters
-    if args.repo:
-        config.config['git']['addr'] = args.repo
     
-    if args.branch:
-        config.config['git']['branch'] = args.branch
+    debug_output(consts.DEBUG_LEVEL_INFO, "Using config file: " + config.config_path)
 
-    if args.name:
-        if args.name in config.config['services']:
-            # name in config file. override.
-            if args.reload_method:
-                config.config['services'][args.name]['reload-method'] = args.reload_method
-                if args.reload_method == 'systemd-reload' or args.reload_method == 'systemd-restart':
-                    config.config['services'][args.name]['systemd-units'] = args.units
-                if args.reload_method == 'command':
-                    config.config['services'][args.name]['reload-command'] = args.reload_command
-                if args.reload_method == 'shell':
-                    config.config['services'][args.name]['reload-shell'] = args.reload_shell
-            if args.files:
-                config.config['services'][args.name]['files'] = args.files
-        else:
-            # name not in config file. temporary add new service.
-            config.config['services'][args.name] = {}
-            if args.reload_method:
-                config.config['services'][args.name]['reload-method'] = args.reload_method
-                if args.reload_method == 'systemd-reload' or args.reload_method == 'systemd-restart':
-                    config.config['services'][args.name]['systemd-units'] = args.units
-                if args.reload_method == 'command':
-                    config.config['services'][args.name]['reload-command'] = args.reload_command
-                if args.reload_method == 'shell':
-                    config.config['services'][args.name]['reload-shell'] = args.reload_shell
-            if args.files:
-                config.config['services'][args.name]['files'] = args.files
-    
-    # if init mode, not checking files.
-    if not init:
-        # print(config.config)
-        # check config file
-        for service_name in config.config['services']:
+    # parse config file
+    try:
+        f = open(config.config_path, 'r', encoding='utf-8')
+    except IOError:
+        debug_output(consts.DEBUG_LEVEL_ERROR, 
+                    "Failed to open config file: " + config.config_path)
+        exit(1)
+    else:
+        cfg_raw = f.read()
+        config.config = yaml.safe_load(cfg_raw)
+        f.close()
 
-            # check reload-method
-            if config.config['services'][service_name]['reload-method']:
+    # apply debug_level from config file or parameter overriding defaults
+    if config.config['basic'].get('debug-level'):
+        config.debug_level = config.config['basic']['debug-level']
+    if args.debug:
+        config.debug_level = consts.DEBUG_LEVEL_INFO
+    debug_output(consts.DEBUG_LEVEL_NOTICE, "Debug level set to " + str(config.debug_level))
 
-                # is systemd-reload or systemd-restart
-                if (config.config['services'][service_name]['reload-method'] == 'systemd-reload' or
-                    config.config['services'][service_name]['reload-method'] == 'systemd-restart'):
+    # apply instance, data path, debug level if exists from config file overriding defaults
+    if config.config['basic'].get('instance'):
+        config.instance = config.config['basic']['instance']
+    debug_output(consts.DEBUG_LEVEL_NOTICE, "Instance name: " + config.instance)
 
-                    # check systemd-units
-                    if config.config['services'][service_name]['systemd-units']:
-                        for unit_file in config.config['services'][service_name]['systemd-units']:
-                            if not isUnitExists(unit_file):
-                                exit('[ERR] Config parse error: in section services/' + service_name + '/systemd-units: Unit ' + unit_file + ' not found.' )
+    if config.config['basic'].get('data-path-prefix'):
+        config.data_path_prefix = config.config['basic']['data-path-prefix']
+    debug_output(consts.DEBUG_LEVEL_NOTICE, "Data directory prefix: " + config.data_path_prefix)
 
-                # is shell to reload
-                if (config.config['services'][service_name]['reload-method'] == 'shell'):
+    debug_output(consts.DEBUG_LEVEL_NOTICE, "Using data path: " + getDataPath())
 
-                    # check if file exists
-                    if (not 'reload-shell' in config.config['services'][service_name]) or (not os.path.exists(config.config['services'][service_name]['reload-shell'])):
-                        exit('[ERR] Config parse error: in section services/' + service_name + '/reload-shell: Not found.')
+    # apply --no-restart from args
+    if args.no_restart:
+        config.arg_no_restart = True
 
-                # is command to reload
-                if (config.config['services'][service_name]['reload-method'] == 'command'):
+    return
 
-                    # check if command exists
-                    if (not 'reload-command' in config.config['services'][service_name]) and (not config.config['services'][service_name]['reload-command']):
-                        exit('[ERR] Config parse error: in section services/' + service_name + '/reload-command: Command cannot be null.')
 
+# Check services in config before actions
+# only check restart methods. File pair checking will performed when updating
+def config_checker( args ):
+
+    services = config.config['services']
+
+    # check each service in services section of config file.
+    for service_name in services:
+
+        # check by reload-method
+        if services[service_name].get('restart-method'):
+
+            # is systemd-reload or systemd-restart
+            if (services[service_name]['restart-method'] == 'systemd-restart' or 
+                services[service_name]['restart-method'] == 'systemd-reload'):
+
+                # check systemd unit files
+                if (services[service_name].get('systemd-units')):
+
+                    for unit_file in services[service_name]['systemd-units']:
+                        if not isSystemdUnitExists(unit_file):
+                            debug_output(consts.DEBUG_LEVEL_ERROR, "Systemd unit " +
+                                         unit_file + " Not found in section " +
+                                         "config/services/" + service_name + "/systemd-units")
+                            exit(1)
+                        else:
+                            debug_output(consts.DEBUG_LEVEL_INFO, "config_parser: " +
+                                        "config/services/" + service_name + "/systemd-units" + unit_file)
+
+                else:
+                    debug_output(consts.DEBUG_LEVEL_ERROR, 'No systemd units found in section' +
+                                 "config/services/" + service_name)
+                    exit(1)
+
+                # is command
+            elif ( services[service_name]['restart-method'] == 'command' ):
+                    
+                if not services[service_name]['restart-command']:
+                    debug_output(consts.DEBUG_LEVEL_ERROR, "No restart-command found in section" +
+                                 "config/services/" + service_name)
+
+            # is other
             else:
-                config.config['services'][service_name]['reload-method'] = 'command'
-                config.config['services'][service_name]['reload-command'] = 'sleep 0'
-            
-            # check files
-            if (not config.config['services'][service_name]['files']):
-                exit('[ERR] Config parse error: in section services/' + service_name + ': Section file not found. Must contain one.')
-            for file_pair in config.config['services'][service_name]['files']:
+                debug_output(consts.DEBUG_LEVEL_ERROR, "Invalid parameter found in " +
+                                 "config/services/" + service_name + "/reload-method section")
+                exit(1)
+        else:
+            # no reload-method section. ERROR.
+            debug_output(consts.DEBUG_LEVEL_ERROR, "No reload-method section found in " + 
+                         "config/services/" + service_name + " section")
+            exit(1)
+
+    return
+
+def filepair_checker():
+    services = config.config['services']
+    for service_name in services:
+        if not services[service_name].get('files'):
+            debug_output(consts.DEBUG_LEVEL_ERROR, "Could not find file section in " +
+                         "config/services/" + service_name)
+            exit(1)
+        # check filepairs existence
+        else:
+            for file_pair in services[service_name]['files']:
                 repo_file = file_pair[:file_pair.index(':')]
-                repo_file = config.repo_path + '/' + repo_file
+                repo_file = getRepoPath() + '/' + repo_file
                 target_file = file_pair[file_pair.index(':')+1:]
                 if not os.path.exists(repo_file):
-                    exit('[ERR] Config parse error: in section services/' + service_name + '/files/: ' + repo_file + ': Cannot found file. Try init first.')
-                if not os.path.exists(target_file):
-                    print('[INFO] In section services/' + service_name + '/files/' + target_file + ': Cannot found file.')
+                    debug_output(consts.DEBUG_LEVEL_ERROR, "Could not found file from local repo: " +
+                                 repo_file + " in section " + "config/services/" + service_name + "/files")
+                    exit(1)
+                else:
+                    debug_output(consts.DEBUG_LEVEL_INFO, "config/services/" + service_name + ": Found " + repo_file )
 
+def filepair_copy( isReverse ):
 
-    return True
-
-def action_init_handler(args):
-
-    print('[INFO] Ready to init.')
-
-    # clone git repo
-    print('[INFO] Repo: ' + config.config['git']['addr'])
-    print('[INFO] local: ' + config.repo_path)
-    cmd = "git clone " + config.config['git']['addr'] + ' ' + config.repo_path
-    print(cmd)
-    os.system(cmd)
-
-    # checkout branch
-    cmd = 'cd ' + config.repo_path + ' && git checkout ' + config.config['git']['branch']
-    print(cmd)
-    os.system(cmd)
-
-    return True
-
-def action_update_handler(args):
-
-    print('[INFO] Ready to update.')
-
-    # pull git repo
-    cmd = 'cd ' + config.repo_path + ' && git checkout ' + config.config['git']['branch']
-    print(cmd)
-    os.system(cmd)
-
-    cmd = 'cd ' + config.repo_path + ' && git pull'
-    print(cmd)
-    os.system(cmd)
-
-    # handle service
-    for service_name in config.config['services']:
-
-        # copy files
-        for file_pair in config.config['services'][service_name]['files']:
+    # for each services
+    services = config.config['services']
+    for service_name in services:
+        for file_pair in services[service_name]['files']:
             repo_file = file_pair[:file_pair.index(':')]
-            repo_file = config.repo_path + '/' + repo_file
+            repo_file = getRepoPath() + '/' + repo_file
             target_file = file_pair[file_pair.index(':')+1:]
-            
-            cmd = 'cp ' + repo_file + ' ' + target_file
-            print(cmd)
-            os.system(cmd)
-        
-        # restart service
-        if config.config['services'][service_name]['reload-method'] == 'systemd-reload':
-            for unit_file in config.config['services'][service_name]['systemd-units']:
-                cmd = 'systemctl reload ' + unit_file
-                print(cmd)
+            if not isReverse:
+                cmd = 'cp ' + repo_file + ' ' + target_file
+                debug_output(consts.DEBUG_LEVEL_INFO, cmd)
                 os.system(cmd)
-        if config.config['services'][service_name]['reload-method'] == 'systemd-restart':
-            for unit_file in config.config['services'][service_name]['systemd-units']:
-                cmd = 'systemctl restart ' + unit_file
-                print(cmd)
+            else:
+                cmd = 'cp ' + target_file + ' ' + repo_file
+                debug_output(consts.DEBUG_LEVEL_INFO, cmd)
                 os.system(cmd)
-        if config.config['services'][service_name]['reload-method'] == 'shell':
-            cmd = 'bash ' + config.config['services'][service_name]['reload_shell']
-            print(cmd)
-            os.system(cmd)
-        if config.config['services'][service_name]['reload-method'] == 'command':
-            cmd = 'bash -c \'' + config.config['services'][service_name]['command'] + '\''
-            print(cmd)
-            os.system(cmd)
 
+    return
 
-    return True
+def prepare_repo():
+
+    debug_output(consts.DEBUG_LEVEL_INFO, "Prepare local repo")
+
+    # prepare repo: pull or clone
+    if os.path.exists(getDataPath() + '/initialized'):
+        # git pull
+        debug_output(consts.DEBUG_LEVEL_INFO, "Initialized. Pull from repo " + config.config['upstream']['git-addr'])
+        cmd = 'cd ' + getRepoPath() + ' && git pull'
+        debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+        os.system(cmd)
+    else:
+        debug_output(consts.DEBUG_LEVEL_INFO, "Not initialized. Clone from repo " + config.config['upstream']['git-addr'])
+        cmd = "git clone " + config.config['upstream']['git-addr'] + ' ' + getRepoPath()
+        debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+        os.system(cmd)
+        cmd = "touch " + getDataPath() + '/initialized'
+        debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+        os.system(cmd)
+    
+    # checkout branch
+    debug_output(consts.DEBUG_LEVEL_INFO, "Checkout from branch " + config.config['upstream']['git-pull-branch'])
+    cmd = 'cd ' + getRepoPath() + ' && git checkout ' + config.config['upstream']['git-pull-branch']
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+    return
+
+def backup_current_config():
+
+    # create branch
+    debug_output(consts.DEBUG_LEVEL_INFO, "Create branch " + config.config['upstream']['git-backup-branch'])
+    cmd = 'cd ' + getRepoPath() + ' && git branch ' + config.config['upstream']['git-backup-branch']
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+    # checkout backup branch
+    debug_output(consts.DEBUG_LEVEL_INFO, "Checkout branch " + config.config['upstream']['git-backup-branch'])
+    cmd = 'cd ' + getRepoPath() + ' && git checkout ' + config.config['upstream']['git-backup-branch']
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+    # copy current files to git repo
+    filepair_copy(True)
+
+    # commit
+    debug_output(consts.DEBUG_LEVEL_INFO, "Commit backup files at local repo")
+    cmd = 'cd ' + getRepoPath() + ' && git add --all && git commit -m "' + time.asctime( time.localtime(time.time())) + '"'
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+def update_config():
+    debug_output(consts.DEBUG_LEVEL_INFO, "Checkout branch " + config.config['upstream']['git-pull-branch'])
+    cmd = 'cd ' + getRepoPath() + ' && git checkout ' + config.config['upstream']['git-pull-branch']
+    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+    os.system(cmd)
+
+    # copy current files to git repo
+    filepair_copy(False)
+
+def restart_service():
+    # for each services
+    services = config.config['services']
+    for service_name in services:
+
+        # before
+        if services[service_name].get('restart-before'):
+            debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-before'])
+            os.system(services[service_name]['restart-before'])
+
+        # restart
+        if (services[service_name]['restart-method'] == 'systemd-restart' or 
+            services[service_name]['restart-method'] == 'systemd-reload'):
+            for unit_file in services[service_name]['systemd-units']:
+                cmd = ""
+                if (services[service_name]['restart-method'] == 'systemd-restart'):
+                    cmd = "systemctl restart " + unit_file
+                else:
+                    cmd = "systemctl reload " + unit_file
+                debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+                os.system(cmd)
+        elif (services[service_name]['restart-method'] == 'command'):
+            debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-command'])
+            os.system(services[service_name]['restart-command'])
+
+        # after
+        if services[service_name].get('restart-after'):
+            debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-after'])
+            os.system(services[service_name]['restart-after'])
+
+def clear_cache():
+    debug_output(consts.DEBUG_LEVEL_WARNING, "Will delete cache including backups!")
+    cmd = "rm " + getDataPath() + " -r"
+    os.system(cmd)
+
+#################### MAIN ####################
 
 def main():
     args = args_parser()
 
-    if args.action == 'init':
-        config_parser(args, init=True)
-        action_init_handler(args)
+    config_init(args)
+    config_checker(args)
 
-    if args.action == 'update':
-        config_parser(args, init=False)
-        action_update_handler(args)
+    if args.action == "update":
+        prepare_repo()
+        filepair_checker()
+        backup_current_config()
+        update_config()
+        if not args.no_restart:
+            restart_service()
+
+    elif args.action == "rollback":
+        pass
+
+    elif args.action == "clear":
+        clear_cache()
 
     return True
 
