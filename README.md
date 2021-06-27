@@ -73,6 +73,22 @@ services:
       - /router/samba/custom.conf:/var/spool/samba/custom.conf
 ```
 
+- `instance` 为实例名称，每个实例将自动创建不同空间（位于`data-path-prefix instance`）
+- `debug-level` 配置调试信息输出级别，设置到3则输出所有调试信息
+- `git-addr` 为上游仓库地址，建议使用私有仓库
+- `git-pull-branch` 配置下拉配置的分支
+- `git-backup-branch` 配置备份到本地以及推送到服务器的分支
+- 服务配置
+  - 首先你需要定义一个服务名（如`dnsmasq`）
+  - 然后定义重启方式，可选`systemd-reload`, `systemd-restart`, `command`
+    - 若使用`systemd-reload`或者`systemd-restart`方式，则还需定义`systemd-units`列表
+    - 若使用`command`方式，还需定义`restart-command`
+    - 若该服务无需重启，可以设置
+      ```yaml
+      restart-command: 'sleep 0'
+      ```
+  - 可选定义重启前后的行为，`restart-before`和`restart-after`分别在重启服务前后执行
+  - 最后，定义文件映射列表。左边为仓库内的相对路径（可以没有先导"/"），右边为系统的绝对路径。
 ## 使用方法
 
 ### 下拉配置
@@ -83,7 +99,7 @@ services:
 
 ### 回滚配置
 
-使用`servr-autoconfig rollback`一键回滚到上一次配置状态，并自动重启更改的服务。`--no-restart`也可用。
+使用`servr-autoconfig rollback`一键回滚到上一次配置状态，并自动重启更改的服务。`--no-restart`、`--full-reload`也可用。
 
 ### 推送备份
 
