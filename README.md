@@ -39,7 +39,7 @@ chmod +x ./uninstall.sh
 
 ## 配置
 
-编辑配置文件（脚本安装方式的配置文件在`/etc/server-autoconfig.yml`）。以下是实例配置：
+编辑配置文件（脚本安装方式的配置文件在`/etc/server-autoconfig/config.yml`）。以下是示例配置：
 
 `config.yml`
 
@@ -77,13 +77,13 @@ services:
 
 ### 下拉配置
 
-简单地，你可以使用`server-autoconfig update`一键将上游配置部署到本机，并自动重启服务，同时会对本机之前的配置进行备份。备份数据存储在本地。
+简单地，你可以使用`server-autoconfig update`一键将上游配置部署到本机，并自动重启更改的服务，同时会对本机之前的配置进行备份。备份数据存储在本地。
 
-如果不需要重启服务，可以添加`--no-restart`选项。
+如果不需要重启服务，可以添加`--no-restart`选项；如果需要强制重启所有服务，使用`--full-reload`选项。
 
 ### 回滚配置
 
-使用`servr-autoconfig rollback`一键回滚到上一次配置状态，并自动重启服务。`--no-restart`也可用。
+使用`servr-autoconfig rollback`一键回滚到上一次配置状态，并自动重启更改的服务。`--no-restart`也可用。
 
 ### 推送备份
 
@@ -100,11 +100,28 @@ services:
 - 指定配置文件：添加 `-c /path/to/file.yml` 选项
 - debug： `--debug`
 
-### 一些技巧
+## 一些技巧
 
-- **双向修改**：可以直接在目标设备修改系统配置文件，然后通过此脚本上传到备份分支，再合并到主线，实现配置的上传。
-- **自动检查并下拉配置** 建议等TO-DO开发完成后再结合crontab或者Systemd Timer使用。
+### 双向修改
 
-## TO-DO
+可以直接在目标设备修改系统配置文件，然后通过此脚本上传到备份分支，再合并到主线，实现配置的上传。
 
-- 重启服务时增加判断，若配置文件没有改变则不自动重启服务，除非手动要求。
+### 自动检查并下拉配置
+
+配合Systemd，每隔一定时间自动下拉配置，具体使用方法如下：
+
+```sh
+systemctl start server-autoconfig.timer
+systemctl enable server-autoconfig.timer
+```
+
+或者也可指定配置文件使用：
+
+```sh
+systemctl start server-autoconfig@my-autoconfig.timer
+systemctl enable server-autoconfig@my-autoconfig.timer
+```
+上面的例子将使用/etc/server-autoconfig/my-autoconfig.yml配置文件。
+
+若使用crontab，按照systemd文件里的配置写即可。
+

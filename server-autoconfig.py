@@ -1,11 +1,14 @@
 #!/bin/python3
 
+# version 0.3.5
+
 import yaml
 import argparse
 import os
 import subprocess
 from pathlib import Path
 import time
+import filecmp
 
 # config and default config
 class config:
@@ -16,6 +19,7 @@ class config:
 
     arg_no_restart = False
     arg_specify_service = False
+    arg_full_restart = False
 
     config = []
 
@@ -175,6 +179,12 @@ def args_parser():
     )
 
     argp.add_argument(
+        '--full-restart',
+        action='store_true',
+        help='Force restart all services when update, regardless of wether config file the same or not.'
+    )
+
+    argp.add_argument(
         '--service',
         required=False,
         metavar='SERVICE_NAME',
@@ -230,6 +240,11 @@ def config_init( args ):
     if args.no_restart:
         config.arg_no_restart = True
         debug_output(consts.DEBUG_LEVEL_NOTICE, "--no-restart, will not restart services")
+    
+    # apply --full-restart from args
+    if args.full_restart:
+        config.arg_full_restart = True
+        debug_output(consts.DEBUG_LEVEL_NOTICE, "--full-restart, will restart all services")
 
     return
 
@@ -325,11 +340,21 @@ def filepair_copy( isReverse ):
             repo_file = getRepoPath() + '/' + repo_file
             target_file = file_pair[file_pair.index(':')+1:]
             if not isReverse:
-                createDirectoryByName(target_file)
-                cmd = 'cp ' + repo_file + ' ' + target_file
-                debug_output(consts.DEBUG_LEVEL_INFO, cmd)
-                os.system(cmd)
+                # target file missing, or two files are not the same
+                if (not os.path.exists(target_file)) or (not filecmp.cmp(repo_file, target_file)):
+                    # copy file
+                    createDirectoryByName(target_file)
+                    cmd = 'cp ' + repo_file + ' ' + target_file
+                    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+                    os.system(cmd)
+                    # set flag
+                    services[service_name]['isRestartNeeded'] = True
+                # target file not missing, and two files are the same
+                else:
+                    # do nothing
+                    pass
             else:
+                # force full backup, no matter exists or the same
                 createDirectoryByName(repo_file)
                 cmd = 'cp ' + target_file + ' ' + repo_file
                 debug_output(consts.DEBUG_LEVEL_INFO, cmd)
@@ -396,30 +421,38 @@ def restart_service():
     services = config.config['services']
     for service_name in services:
 
-        # before
-        if services[service_name].get('restart-before'):
-            debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-before'])
-            os.system(services[service_name]['restart-before'])
+        if services[service_name].get('isRestartNeeded') or config.arg_full_restart:
 
-        # restart
-        if (services[service_name]['restart-method'] == 'systemd-restart' or 
-            services[service_name]['restart-method'] == 'systemd-reload'):
-            for unit_file in services[service_name]['systemd-units']:
-                cmd = ""
-                if (services[service_name]['restart-method'] == 'systemd-restart'):
-                    cmd = "systemctl restart " + unit_file
-                else:
-                    cmd = "systemctl reload " + unit_file
-                debug_output(consts.DEBUG_LEVEL_INFO, cmd)
-                os.system(cmd)
-        elif (services[service_name]['restart-method'] == 'command'):
-            debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-command'])
-            os.system(services[service_name]['restart-command'])
+            # before
+            if services[service_name].get('restart-before'):
+                debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-before'])
+                os.system(services[service_name]['restart-before'])
 
-        # after
-        if services[service_name].get('restart-after'):
-            debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-after'])
-            os.system(services[service_name]['restart-after'])
+            # restart
+            if (services[service_name]['restart-method'] == 'systemd-restart' or 
+                services[service_name]['restart-method'] == 'systemd-reload'):
+                for unit_file in services[service_name]['systemd-units']:
+                    cmd = ""
+                    if (services[service_name]['restart-method'] == 'systemd-restart'):
+                        cmd = "systemctl restart " + unit_file
+                    else:
+                        cmd = "systemctl reload " + unit_file
+                    debug_output(consts.DEBUG_LEVEL_INFO, cmd)
+                    os.system(cmd)
+            elif (services[service_name]['restart-method'] == 'command'):
+                debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-command'])
+                os.system(services[service_name]['restart-command'])
+
+            # after
+            if services[service_name].get('restart-after'):
+                debug_output(consts.DEBUG_LEVEL_INFO, services[service_name]['restart-after'])
+                os.system(services[service_name]['restart-after'])
+
+            if services[service_name].get('isRestartNeeded'):
+                del services[service_name]['isRestartNeeded']
+
+        else:
+            debug_output(consts.DEBUG_LEVEL_INFO, "Skipping restarting " + service_name)
 
 def clear_cache():
     debug_output(consts.DEBUG_LEVEL_WARNING, "Will delete cache including backups!")

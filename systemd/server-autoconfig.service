@@ -1,0 +1,8 @@
+[Unit]
+Description=Pulling and applying settings from remote
+Wants=network-online.target
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/server-autoconfig/server-autoconfig.py -c /etc/server-autoconfig/config.yml
