@@ -5,4 +5,4 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/opt/server-autoconfig/server-autoconfig.py -c /etc/server-autoconfig/%I.yml
+ExecStart=/opt/server-autoconfig/server-autoconfig.py update -c /etc/server-autoconfig/%I.yml

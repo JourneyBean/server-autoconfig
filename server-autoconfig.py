@@ -184,13 +184,6 @@ def args_parser():
         help='Force restart all services when update, regardless of wether config file the same or not.'
     )
 
-    argp.add_argument(
-        '--service',
-        required=False,
-        metavar='SERVICE_NAME',
-        help='Specify a service to apply'
-    )
-
     args = argp.parse_args()
 
     return args

@@ -1,9 +1,10 @@
 #!/bin/bash
+set -v on
 
-# v0.3.0
+# v0.3.5
 
 # delete program file
-rm /usr/share/bin/server-autoconfig
+rm /usr/bin/server-autoconfig
 rm -r /opt/server-autoconfig
 
 # delete config folder

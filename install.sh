@@ -1,12 +1,13 @@
 #!/bin/bash
+set -v on
 
-# v0.3.0
+# v0.3.5
 
 # copy program file
 mkdir /opt/server-autoconfig
 cp ./server-autoconfig.py /opt/server-autoconfig/
 chmod +x /opt/server-autoconfig/server-autoconfig.py
-ln -s /usr/share/bin/server-autoconfig /opt/server-autoconfig/server-autoconfig.py
+ln -s /opt/server-autoconfig/server-autoconfig.py /usr/bin/server-autoconfig
 
 # copy config file
 mkdir /etc/server-autoconfig
