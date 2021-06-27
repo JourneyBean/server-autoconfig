@@ -1,6 +1,6 @@
 # Server Autoconfig
 
-使用Python编写的服务器配置自动应用脚本
+使用Python编写的服务器配置自动应用脚本(v0.3.5)
 
 ## 主要功能
 
@@ -20,7 +20,7 @@
 ```
 cd server-autoconfig
 chmod +x ./install.sh
-./install.sh
+sudo ./install.sh
 ```
 
 你也可以手动复制文件到系统的bin文件夹并赋予运行权限，并创建数据文件夹。
@@ -32,7 +32,7 @@ chmod +x ./install.sh
 ```
 cd server-autoconfig
 chmod +x ./uninstall.sh
-./uninstall.sh
+sudo ./uninstall.sh
 ```
 
 你也可以直接手动删除
@@ -102,7 +102,13 @@ services:
 
 ## 一些技巧
 
-### 双向修改
+### 多个实例
+
+可以同时为脚本创建多个实例，只需复制配置文件并修改basic/instance节内容为不同值即可。不同实例的存储仓库完全分开。实际上，每个实例都独享不同的数据文件夹，位于`/var/cache/server-autoconfig/data_xxxx`，其中`xxxx`即表示配置的实例名称。
+
+但需要注意的是，如果需要多个实例同时上传备份配置（以及多个主机共享同一上游仓库），最好将备份分支名称区分开来，否则可能出现上传问题。
+
+### 双向修改（合并备份至主分支）
 
 可以直接在目标设备修改系统配置文件，然后通过此脚本上传到备份分支，再合并到主线，实现配置的上传。
 
@@ -111,17 +117,30 @@ services:
 配合Systemd，每隔一定时间自动下拉配置，具体使用方法如下：
 
 ```sh
-systemctl start server-autoconfig.timer
-systemctl enable server-autoconfig.timer
+sudo systemctl start server-autoconfig.timer
+sudo systemctl enable server-autoconfig.timer
 ```
 
 或者也可指定配置文件使用：
 
 ```sh
-systemctl start server-autoconfig@my-autoconfig.timer
-systemctl enable server-autoconfig@my-autoconfig.timer
+sudo systemctl start server-autoconfig@my-autoconfig.timer
+sudo systemctl enable server-autoconfig@my-autoconfig.timer
 ```
 上面的例子将使用/etc/server-autoconfig/my-autoconfig.yml配置文件。
 
 若使用crontab，按照systemd文件里的配置写即可。
 
+### 保存Git私有仓库的帐号密码
+
+进入配置的本地仓库文件夹（一般在`/var/cache/server-autoconfig/data_xxxx/repo`），执行：
+
+```
+sudo git config --local credential.helper store --file /var/cache/server-autoconfig/data_xxxx/credentials
+```
+
+然后手动执行一次`server-autoconfig update`，填入帐号密码即可。
+
+> **注意：对于托管在公共服务的私有Git仓库，建议使用密钥(或Token)作为密码登陆，以确保安全性。**
+
+> **注意：不指定凭据存储路径也可工作，但是同时运行多个实例时可能会出现问题，因为若不指定凭据路径，则所有凭据都默认存储在~/.git-credentials，导致不同仓库的密钥产生混淆**
