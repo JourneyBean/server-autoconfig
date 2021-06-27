@@ -14,7 +14,7 @@ rm -r /etc/server-autoconfig
 rm -r /var/cache/server-autoconfig
 
 # delete service files
-systemctl stop server-autoconfig.timer
+systemctl stop server-autoconfig*
 rm /usr/lib/systemd/system/server-autoconfig.service
 rm /usr/lib/systemd/system/server-autoconfig.timer
 rm /usr/lib/systemd/system/server-autoconfig@.service
