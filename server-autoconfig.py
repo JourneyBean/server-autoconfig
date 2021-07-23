@@ -404,6 +404,7 @@ def update_config():
     debug_output(consts.DEBUG_LEVEL_INFO, "[update_config]: Updating config to system")
 
     checkoutRepoBranch(config.config['upstream']['git-pull-branch'])
+    resetRepo()
     filepair_copy(0) # repo -> system
 
 def restart_service():
