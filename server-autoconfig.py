@@ -402,7 +402,8 @@ def backup_current_config():
 def update_config():
 
     debug_output(consts.DEBUG_LEVEL_INFO, "[update_config]: Updating config to system")
-
+    
+    resetRepo()
     checkoutRepoBranch(config.config['upstream']['git-pull-branch'])
     resetRepo()
     filepair_copy(0) # repo -> system
