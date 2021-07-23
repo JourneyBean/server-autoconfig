@@ -1,4 +1,4 @@
-#!/bin/python3
+#!/usr/bin/python3
 
 # version 0.3.5
 
