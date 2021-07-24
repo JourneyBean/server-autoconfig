@@ -170,7 +170,7 @@ sudo systemctl enable server-autoconfig@my-autoconfig.timer
 进入配置的本地仓库文件夹（一般在`/var/cache/server-autoconfig/data_xxxx/repo`），执行：
 
 ```
-sudo git config --local credential.helper store --file /var/cache/server-autoconfig/data_xxxx/credentials
+sudo git config --local credential.helper store "--file /var/cache/server-autoconfig/data_xxxx/credentials"
 ```
 
 然后手动执行一次`server-autoconfig update`，填入帐号密码即可。
