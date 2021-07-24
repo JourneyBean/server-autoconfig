@@ -1,6 +1,6 @@
 # Server Autoconfig
 
-使用Python编写的服务器配置自动应用脚本(v0.3.5)
+使用Python编写的服务器配置自动应用脚本(v0.3.6)
 
 ## 主要功能
 
@@ -90,6 +90,24 @@ services:
   - 可选定义重启前后的行为，`restart-before`和`restart-after`分别在重启服务前后执行
   - 最后，定义文件映射列表。左边为仓库内的相对路径（可以没有先导"/"），右边为系统的绝对路径。
 ## 使用方法
+
+### 从零开始部署
+
+1. 运行install.sh
+2. 编辑配置文件
+3. 执行`server-autoconfig update`
+
+为了避免问题，建议继续执行以下几步
+
+4. 进入`/var/cache/server-autoconfig/date_xxxx/repo/`
+5. 配置仓库的email和用户名：
+  ``` sh
+  sudo git config --local user.email xxx@xxx
+  sudo git config --local user.name xxx
+  ```
+
+6. 如果你的远程仓库是密码保护的，请继续参阅后面“保存Git私有仓库的帐号密码”节
+7. （可选）每隔一段时间自动下拉并应用配置，请参阅后面“自动检查并下拉配置”节
 
 ### 下拉配置
 
